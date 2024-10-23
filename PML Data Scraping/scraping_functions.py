@@ -3,9 +3,11 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
+import concurrent.futures
+import time
 
 # GLOBAL PARAMS
-NODES_FILE = 'Catalogo_Nodos.xlsx'
+NODES_FILE = '/Users/mariaahued/Documents/PML Data Scraping/PML-data-scraping/PML Data Scraping/Catalogo_Nodos.xlsx'
 nodes_df = pd.read_excel(NODES_FILE)
 nodes = list(set(nodes_df['CLAVE'].tolist()))
 base_url = 'https://ws01.cenace.gob.mx:8082/SWPML/SIM/SIN/MDA'
@@ -44,7 +46,7 @@ def download_nodes_data(nodes_list=['01PLO-115', '08SUR-115'], years=[2017]):
 
             # Loop to extract data (if successful)
             if response.status_code == 200:
-                print(f'Data fetched successfully until {current_end_date}')
+                #print(f'Data fetched successfully until {current_end_date}')
                 response_json = response.json()
 
                 for res in response_json['Resultados']:
@@ -78,12 +80,42 @@ def download_all_nodes(nodes, years, chunk_size=20):
         df = download_nodes_data(nodes_list=node_chunk, years=years)
         temp_df = pd.concat([df, temp_df], ignore_index=True)
         i += 1
+        print(temp_df.head())
 
     return temp_df
 
 
+def download_all_nodes_parallel(nodes, years, chunk_size=20):
+    total_chunks = np.ceil(len(nodes)/chunk_size)
+    all_data = pd.DataFrame()
+    i = 1
 
-df = download_all_nodes(nodes=nodes, years=[2017])
-df.to_csv('full_pml_mda_2017')
+    # Parallel thread with downloads
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_chunk = {
+            executor.submit(download_nodes_data, node_chunk, years): node_chunk for node_chunk in chunk_of_nodes(nodes, chunk_size)
+        }
+
+        for future in concurrent.futures.as_completed(future_to_chunk):
+            node_chunk = future_to_chunk[future]
+            try: 
+                chunk_data = future.result()
+                print(f'Processing chunk {i} of {total_chunks}')
+                all_data = pd.concat([all_data, chunk_data], ignore_index=True)  # Concatenate chunk data
+                i += 1
+            except Exception as exc: 
+                print(f'Error occurred in chunk {node_chunk}: {exc}')
+
+    return all_data
+
+
+#df = download_all_nodes(nodes=nodes, years=[2017])
+#df.to_csv('full_pml_mda_2017')
+
+if __name__ == "__main__":
+    df = download_all_nodes_parallel(nodes=nodes, years=[2020])
+    df.to_csv('full_pml_mda_2020.csv')
+    print(df.head())
 
 #print(df.head())
+
